@@ -6,7 +6,11 @@ import at.pavlov.cannons.projectile.FlyingProjectile;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
+import org.bukkit.block.BlockState;
+import org.bukkit.block.data.BlockData;
+import org.bukkit.block.data.Directional;
 import org.bukkit.block.data.type.WallSign;
+import org.bukkit.entity.ItemFrame;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -36,6 +40,7 @@ import org.bukkit.potion.PotionEffectType;
 import org.bukkit.util.BlockIterator;
 
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -337,17 +342,71 @@ public class PlayerListener implements Listener
 
     }
 
+    /**
+     * Handles event if player places a cannon
+     * @param event
+     */
+    @EventHandler
+    public void PlayerPlaceCannon(PlayerInteractEvent event) {
+        // print deBug information
+        plugin.logDebug("===============PlayerInteractEvent===============");
+        plugin.logDebug("Hand : " + event.getHand());
+        plugin.logDebug("Clicked block : " + event.getClickedBlock());
+        plugin.logDebug("Action : " + event.getAction());
+        // check to prevent double call
+        if(event.getAction() == Action.LEFT_CLICK_AIR || event.getAction() == Action.LEFT_CLICK_BLOCK) return;
+        if(Objects.equals(event.getHand(), EquipmentSlot.OFF_HAND)) return;
+        // get important variables
+        Player player = event.getPlayer();
+        Material material = player.getInventory().getItemInMainHand().getType();
+        // Undo checks
+        // TODO Change check to item in hand (not all papers should call this action) сфыеьв 1
+        if(!Objects.equals(material, Material.PAPER)) return;
+        plugin.logDebug("You hold paper");
+        if(event.getClickedBlock() == null) return;
+        plugin.logDebug("It is not null");
+        //TODO не знаю почему,но ивент все равно вызывается несколько раз.Это временный костыль
+        if(event.getClickedBlock().getType() == Material.BARRIER) {
+            plugin.logDebug("КОСТЫЛЬ");
+            return;
+        }
+        if(event.getClickedBlock().isEmpty()) return;
+        plugin.logDebug("It is not empty");
+        if(event.getClickedBlock().isLiquid()) return;
+        plugin.logDebug("It is not liquid");
+        // getting the location above the clicked block and spawn frame with paper inside
+        plugin.logDebug("You can place item frame here");
+        Location location = event.getClickedBlock().getLocation();
+        location.setY(location.getY() + 1);
+        //TODO
+        // срет в консоль если нет свободного места для спавна
+        // может заспавнить на блоке сверху (лицом вниз) Исправить!
+        ItemFrame frame = location.getWorld().spawn(location,ItemFrame.class);
+        frame.setItem(player.getInventory().getItemInMainHand());
+        frame.setFixed(true);
+
+        // set barrier in this location(for all cannons logic)
+        location.getBlock().setType(Material.BARRIER);
+        //Directional directional = (Directional) location.getBlock().getBlockData();
+        //directional.setFacing(BlockFace.WEST);
+        //location.getBlock().setBlockData(directional); // и че оно не работает?
+        //plugin.logDebug("Directional : " + directional);
+        //plugin.logDebug("Block directional : " + location.getBlock().getBlockData());
+        //calling the mechanism for checking the block for compliance with the gun
+        //TODO дальнейший ход проги временно отключен. ВКЛЮЧИТЬ!
+        cannonManager.getCannon(location, event.getPlayer().getUniqueId());
+    }
 
 
     /**
      * Handles event if player interacts with the cannon
      * @param event
      */
-	@EventHandler
+    @EventHandler
     public void PlayerInteract(PlayerInteractEvent event)
     {
         Action action = event.getAction();
-
+        //============================================GetClickedBlock============================================//
         Block clickedBlock = null;
         if(event.getClickedBlock() == null)
         {
@@ -373,7 +432,7 @@ public class PlayerListener implements Listener
         if (clickedBlock == null){
             return;
         }
-
+        //============================================GetClickedBlock============================================//
         final Player player = event.getPlayer();
         final Location barrel = clickedBlock.getLocation();
 
@@ -404,7 +463,7 @@ public class PlayerListener implements Listener
             }
         }
 
-    	if((event.getAction() == Action.RIGHT_CLICK_BLOCK || event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.PHYSICAL) && event.getHand() == EquipmentSlot.HAND && cannon != null)
+        if((event.getAction() == Action.RIGHT_CLICK_BLOCK || event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.PHYSICAL) && event.getHand() == EquipmentSlot.HAND && cannon != null)
         {
             // get cannon design
             final CannonDesign design = cannon.getCannonDesign();
@@ -602,7 +661,7 @@ public class PlayerListener implements Listener
                     int d = design.getLinkCannonsDistance() * 2;
                     for (Cannon fcannon : CannonManager.getCannonsInBox(cannon.getLocation(), d, d, d)) {
                         if (fcannon.getCannonDesign().equals(cannon.getCannonDesign()) &&  (!cannon.getCannonDesign().isAccessForOwnerOnly() || fcannon.getOwner() == player.getUniqueId()))
-                        fcannon.useRamRod(player);
+                            fcannon.useRamRod(player);
                     }
                 }
 
@@ -616,18 +675,19 @@ public class PlayerListener implements Listener
         }
         //no cannon found - maybe the player has click into the air to stop aiming
         else if(cannon == null && action == Action.RIGHT_CLICK_AIR && event.getHand() == EquipmentSlot.HAND){
-                // stop aiming mode when right clicking in the air
-                if (config.getToolAutoaim().equalsFuzzy(eventitem))
-                    aiming.aimingMode(player, null, false);
-                plugin.getCommandListener().removeCannonSelector(player);
+            // stop aiming mode when right clicking in the air
+            if (config.getToolAutoaim().equalsFuzzy(eventitem))
+                aiming.aimingMode(player, null, false);
+            plugin.getCommandListener().removeCannonSelector(player);
         }
         //fire cannon
         else if(event.getAction().equals(Action.LEFT_CLICK_AIR) && event.getHand() == EquipmentSlot.HAND) //|| event.getAction().equals(Action.LEFT_CLICK_BLOCK))
         {
             //check if the player is passenger of a projectile, if so he can teleport back by left clicking
             CannonsUtil.teleportBack(plugin.getProjectileManager().getAttachedProjectile(event.getPlayer()));
-        	aiming.aimingMode(event.getPlayer(), null, true);
+            aiming.aimingMode(event.getPlayer(), null, true);
         }
     }
+
 
 }
